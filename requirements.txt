@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+motor
+dotenv
+pydantic
+typing
+openai
+requests
+rapidfuzz
+python-jose
+passlib[argon2]
+python-multipart

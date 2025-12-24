@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  fastapi-app:
+    build: .
+    container_name: why_fashion_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app # Mount local code for live reload
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload

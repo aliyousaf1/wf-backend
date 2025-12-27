@@ -8,7 +8,7 @@ pingRouter = APIRouter(
 
 @pingRouter.get("/ping")
 def ping():
-    return {"status": "true", "message": "ALIVE"
+    return {"status": "true", "message": "ALIVEss"
 }
 
 @pingRouter.get("/databases")

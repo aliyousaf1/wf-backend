@@ -38,9 +38,19 @@ async def getUserDetails(email):
         return None
     userData = serializeItem(userData)
     return {
-        "first_name": userData["first_name"],
-        "last_name": userData["last_name"],
-        "dob": userData["dob"]
+        "first_name": userData.get("first_name"),
+        "last_name": userData.get("last_name"),
+        "dob": userData.get("dob"),
+        "email": userData.get("email"),
+        "phone_number": userData.get("phone_number"),
+        "onboarded": userData.get("onboarded", False),
+        "gender": userData.get("gender"),
+        "genders": userData.get("genders", []),
+        "favorite_brands": userData.get("favorite_brands", []),
+        "sizes": userData.get("sizes", {}),
+        "likes": userData.get("likes", []),
+        "dislikes": userData.get("dislikes", []),
+        "notification_preferences": userData.get("notification_preferences", {})
     }
 
 '''

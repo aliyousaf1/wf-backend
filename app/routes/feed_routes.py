@@ -390,6 +390,130 @@ async def addToWatched(email: str, product: dict):
         raise HTTPException(500, "Couldn't view product")
     return {"message": "SUCCESS"}
 
+async def get_recommendations_with_genders(data: dict):
+    """
+    Helper function to handle recommendations with genders array.
+    If genders is an array, fetches recommendations for each gender and combines them.
+    """
+    request_data = data.get("data", {})
+    genders = request_data.get("genders", [])
+    
+    # Normalize genders to list
+    if isinstance(genders, str):
+        genders = [genders]
+    elif not isinstance(genders, list):
+        genders = []
+    
+    # If no genders array, fallback to single gender or fetch from user
+    if not genders:
+        single_gender = request_data.get("gender", "")
+        if single_gender:
+            genders = [single_gender]
+        else:
+            # Fetch user to get genders
+            email = request_data.get("email", "")
+            if email:
+                user = await usersCollection.find_one({"email": email})
+                if user:
+                    user = serializeItem(user)
+                    user_genders = user.get("genders", [])
+                    if isinstance(user_genders, list) and user_genders:
+                        genders = user_genders
+                    elif user_genders:
+                        genders = [user_genders]
+                    else:
+                        # Fallback to old gender field
+                        old_gender = user.get("gender", "")
+                        if old_gender:
+                            genders = [old_gender]
+    
+    if not genders:
+        return []
+    
+    # Normalize genders to lowercase strings
+    genders = [g.strip().lower() if isinstance(g, str) else str(g).lower() for g in genders if g]
+    
+    if not genders:
+        return []
+    
+    # If single gender, use existing function
+    if len(genders) == 1:
+        modified_data = request_data.copy()
+        modified_data["gender"] = genders[0]
+        return await get_recommendations(modified_data)
+    
+    # Multiple genders: fetch recommendations for each and combine
+    all_recommendations = []
+    seen_ids = set()
+    
+    for gender in genders:
+        modified_data = request_data.copy()
+        modified_data["gender"] = gender
+        recommendations = await get_recommendations(modified_data)
+        
+        for product in recommendations:
+            product_id = str(product.get("_id", ""))
+            if product_id and product_id not in seen_ids:
+                all_recommendations.append(product)
+                seen_ids.add(product_id)
+    
+    # Return up to 10 recommendations
+    return all_recommendations[:10]
+
+
+async def get_recommendations_guest_with_genders(data: dict):
+    """
+    Helper function to handle guest recommendations with genders array.
+    """
+    request_data = data.get("data", {})
+    genders = request_data.get("genders", [])
+    
+    # Normalize genders to list
+    if isinstance(genders, str):
+        genders = [genders]
+    elif not isinstance(genders, list):
+        genders = []
+    
+    # Fallback to single gender
+    if not genders:
+        single_gender = request_data.get("gender", "")
+        if single_gender:
+            genders = [single_gender]
+    
+    if not genders:
+        return []
+    
+    # Normalize genders to lowercase strings
+    genders = [g.strip().lower() if isinstance(g, str) else str(g).lower() for g in genders if g]
+    
+    if not genders:
+        return []
+    
+    # If single gender, use existing function
+    if len(genders) == 1:
+        modified_data = request_data.copy()
+        modified_data["gender"] = genders[0]
+        return await get_recommendations_guest(modified_data)
+    
+    # Multiple genders: fetch recommendations for each and combine
+    all_recommendations = []
+    seen_ids = set()
+    
+    for gender in genders:
+        modified_data = request_data.copy()
+        modified_data["gender"] = gender
+        recommendations = await get_recommendations_guest(modified_data)
+        
+        for product in recommendations:
+            product_id = str(product.get("_id", ""))
+            if product_id and product_id not in seen_ids:
+                all_recommendations.append(product)
+                seen_ids.add(product_id)
+    
+    # Return up to 10 recommendations
+    return all_recommendations[:10]
+
+
 '''
 Get Feed API
 '''
@@ -421,14 +545,14 @@ async def feed_socket(websocket: WebSocket):
                     await websocket.send_json({"error": "Couldn't view product"})
 
             elif data["req_type"] == "GET_RECOMMENDATIONS":
-                response = await get_recommendations(data["data"])
+                response = await get_recommendations_with_genders(data)
                 if len(response) == 0:
-                    response = await get_recommendations(data["data"])
+                    response = await get_recommendations_with_genders(data)
                 await websocket.send_json(response)
             elif data["req_type"] == "GET_RECOMMENDATIONS_GUEST":
-                response = await get_recommendations_guest(data["data"])
+                response = await get_recommendations_guest_with_genders(data)
                 if len(response) == 0:
-                    response = await get_recommendations_guest(data["data"])
+                    response = await get_recommendations_guest_with_genders(data)
                 await websocket.send_json(response)
 
             elif data["req_type"] == "PING":

@@ -37,6 +37,13 @@ async def getUserDetails(email):
     if not userData:
         return None
     userData = serializeItem(userData)
+    
+    # Ensure genders is always an array
+    genders = userData.get("genders", [])
+    if not isinstance(genders, list):
+        # Handle case where genders might be None or a single value
+        genders = [genders] if genders else []
+    
     return {
         "first_name": userData.get("first_name"),
         "last_name": userData.get("last_name"),
@@ -44,8 +51,7 @@ async def getUserDetails(email):
         "email": userData.get("email"),
         "phone_number": userData.get("phone_number"),
         "onboarded": userData.get("onboarded", False),
-        "gender": userData.get("gender"),
-        "genders": userData.get("genders", []),
+        "genders": genders,
         "favorite_brands": userData.get("favorite_brands", []),
         "sizes": userData.get("sizes", {}),
         "likes": userData.get("likes", []),

@@ -413,8 +413,28 @@ async def getUserDetails(email: str):
             status_code=404,
             detail="No matching user record was found."
         )
-    
-    return serializeItem(userData)
+
+    # Normalize gender so client always receives an **array** in a single key `gender`
+    # New users: may already have `genders` array field
+    # Old users: only have single `gender` string → convert to array under `gender`
+    serialized = serializeItem(userData)
+
+    genders = serialized.get("genders")
+    if isinstance(genders, list) and genders:
+        normalized_gender_array = [str(g).strip() for g in genders if g is not None]
+    else:
+        single_gender = serialized.get("gender")
+        if single_gender:
+            normalized_gender_array = [str(single_gender).strip()]
+        else:
+            normalized_gender_array = []
+
+    # Use single key `gender` for the array
+    serialized["gender"] = normalized_gender_array
+    # Remove legacy `genders` from response to avoid confusion
+    serialized.pop("genders", None)
+
+    return serialized
 
 '''
 Fetches and sends list of available brands in our app

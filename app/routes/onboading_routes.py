@@ -1,4 +1,5 @@
 from email.message import EmailMessage
+import ast
 import random
 import re
 import secrets
@@ -420,14 +421,30 @@ async def getUserDetails(email: str):
     serialized = serializeItem(userData)
 
     genders = serialized.get("genders")
+    candidates = []
     if isinstance(genders, list) and genders:
-        normalized_gender_array = [str(g).strip() for g in genders if g is not None]
+        candidates = genders
     else:
         single_gender = serialized.get("gender")
         if single_gender:
-            normalized_gender_array = [str(single_gender).strip()]
-        else:
-            normalized_gender_array = []
+            candidates = [single_gender]
+
+    normalized_gender_array = []
+    for c in candidates:
+        if c is None:
+            continue
+        s_val = str(c).strip()
+        # Check if the string itself looks like a list e.g. "['MALE', 'FEMALE']"
+        if s_val.startswith("[") and s_val.endswith("]"):
+            try:
+                parsed = ast.literal_eval(s_val)
+                if isinstance(parsed, list):
+                    normalized_gender_array.extend([str(p).strip() for p in parsed])
+                    continue
+            except Exception:
+                # If parsing fails, treat it as a normal string
+                pass
+        normalized_gender_array.append(s_val)
 
     # Use single key `gender` for the array
     serialized["gender"] = normalized_gender_array

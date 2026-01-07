@@ -12,6 +12,7 @@ class UserModel(BaseModel):
     email_verified: bool = Field(default=False)
     favorite_brands: List = []
     sizes: dict = {}
+    sex: str | None = None
     genders: List[str] = []  # List of genders for filtering (e.g., ["men", "women", "unisex"])
     created_at: int = Field(default_factory= lambda : int(time.time()))
     likes: List = []

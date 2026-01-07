@@ -47,6 +47,7 @@ async def getUserDetails(email):
     return {
         "first_name": userData.get("first_name"),
         "last_name": userData.get("last_name"),
+        "sex": userData.get("sex"),
         "dob": userData.get("dob"),
         "email": userData.get("email"),
         "phone_number": userData.get("phone_number"),

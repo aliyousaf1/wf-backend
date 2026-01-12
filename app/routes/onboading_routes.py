@@ -648,11 +648,16 @@ from bson import ObjectId
 def convert_objectids_and_dates(obj):
     """
     Recursively converts ObjectId to str and datetime to ISO-8601 string.
+    Also converts null sentBy to empty string.
     """
     if isinstance(obj, dict):
         new_obj = {}
         for k, v in obj.items():
-            new_obj[k] = convert_objectids_and_dates(v)
+            # Convert null sentBy to empty string
+            if k == "sentBy" and v is None:
+                new_obj[k] = ""
+            else:
+                new_obj[k] = convert_objectids_and_dates(v)
         return new_obj
 
     elif isinstance(obj, list):

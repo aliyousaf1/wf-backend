@@ -611,9 +611,14 @@ def simple_filter_products(query: str, products: list, top_k: int = 50):
 
 @feed_route.get("/search_by_text")
 async def searchByText(gender: str, searchQuery: str = Query(..., min_length=1)):
-    # Convert incoming params to lowercase
-    gender = gender.lower()
+    # Normalize search query to lowercase
     searchQuery = searchQuery.lower()
+
+    # Support comma-separated genders, e.g. "male,female"
+    gender_values = [g.strip().lower() for g in gender.split(",") if g.strip()]
+    if not gender_values:
+        # If no valid gender provided, return empty result set
+        return []
 
     # Normalize plurals
     normalize_map = {
@@ -654,10 +659,18 @@ async def searchByText(gender: str, searchQuery: str = Query(..., min_length=1))
             ]
         })
 
+    # Build gender condition:
+    # - Single gender → keep regex match for backward compatibility
+    # - Multiple genders → use $in on the (lowercased) gender field
+    if len(gender_values) == 1:
+        gender_condition = {"gender": {"$regex": f"^{gender_values[0]}$", "$options": "i"}}
+    else:
+        gender_condition = {"gender": {"$in": gender_values}}
+
     # Build final Mongo query
     query = {
         "$and": [
-            {"gender": {"$regex": f"^{gender}$", "$options": "i"}},
+            gender_condition,
             *keyword_conditions
         ]
     }

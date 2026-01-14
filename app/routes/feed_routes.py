@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from app.core.database import db
+from app.core.config import OPENAI_API_KEY
 import random
 import json
 from openai import OpenAI
@@ -13,6 +14,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 from bson import ObjectId
 from fastapi import Body
+from datetime import datetime
 
 feed_route = APIRouter(prefix="/feed", tags=["Products Feed"])
 
@@ -568,6 +570,19 @@ async def getLikedProducts(email :str):
     return userData["likes"]
 
 
+def make_json_serializable(obj):
+    """Recursively converts datetime and ObjectId objects to JSON-serializable types."""
+    if isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(item) for item in obj]
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, ObjectId):
+        return str(obj)
+    else:
+        return obj
+
 def dict_to_string(data):
     if isinstance(data, dict):
         return " ".join([f"{k} {v}" for k, v in data.items() if v])
@@ -706,32 +721,57 @@ async def searchByText(gender: str, searchQuery: str = Query(..., min_length=1))
 
 @feed_route.post("/search_by_image")
 async def searchByImage(body: Request):
+    print("\n" + "="*80)
+    print("🔍 [DEBUG] Starting search_by_image endpoint")
+    print("="*80)
+    
     reqBody = await body.json()
-    imageAnalysis = await getProductImageDetails(imageUrl=reqBody["imageUrl"])
+    imageUrl = reqBody.get("imageUrl", "")
+    print(f"📥 [DEBUG] Received imageUrl: {imageUrl}")
+    
+    print(f"🔄 [DEBUG] Calling getProductImageDetails...")
+    imageAnalysis = await getProductImageDetails(imageUrl=imageUrl)
+    print(f"✅ [DEBUG] imageAnalysis type: {type(imageAnalysis)}")
+    print(f"✅ [DEBUG] imageAnalysis content: {imageAnalysis}")
 
     # Convert imageAnalysis to a string
     if isinstance(imageAnalysis, dict):
         analysis_str = dict_to_string(imageAnalysis)
+        print(f"📝 [DEBUG] imageAnalysis is dict, converted to string")
     elif isinstance(imageAnalysis, list):
         analysis_str = " | ".join([dict_to_string(item) for item in imageAnalysis])
+        print(f"📝 [DEBUG] imageAnalysis is list, converted to string")
     else:
         analysis_str = str(imageAnalysis)
+        print(f"📝 [DEBUG] imageAnalysis is {type(imageAnalysis)}, converted to string")
+    
+    print(f"📄 [DEBUG] analysis_str: {analysis_str[:200]}..." if len(analysis_str) > 200 else f"📄 [DEBUG] analysis_str: {analysis_str}")
 
     # Fetch all products
+    print(f"🗄️  [DEBUG] Fetching all products from database...")
     productsList = await productsCollection.find().to_list(length=None)
+    print(f"✅ [DEBUG] Fetched {len(productsList)} products from database")
     serialProductsData = [serializeItem(item) for item in productsList]
+    print(f"✅ [DEBUG] Serialized {len(serialProductsData)} products")
 
     # Pre-filter products
+    print(f"🔎 [DEBUG] Running simple_filter_products with analysis_str and {len(serialProductsData)} products...")
     candidateProducts = simple_filter_products(analysis_str, serialProductsData, top_k=50)
+    print(f"✅ [DEBUG] Found {len(candidateProducts)} candidate products after filtering")
 
     if not candidateProducts:
+        print(f"❌ [DEBUG] No candidate products found! Returning empty array.")
+        print(f"📄 [DEBUG] analysis_str was: {analysis_str}")
+        print("="*80 + "\n")
         return []
 
+    print(f"🤖 [DEBUG] Calling OpenAI API with {len(candidateProducts)} candidate products...")
     open_ai_client = OpenAI(
-        api_key="YOUR_API_KEY_HERE"
+        api_key=OPENAI_API_KEY
     )
 
     try:
+        print(f"📤 [DEBUG] Sending request to OpenAI GPT-4.1-mini...")
         response = open_ai_client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
@@ -746,7 +786,7 @@ async def searchByImage(body: Request):
                 {
                     "role": "user",
                     "content": f"""
-                    product_data: {json.dumps(candidateProducts)}
+                    product_data: {json.dumps(make_json_serializable(candidateProducts))}
 
                     Task:
                     - Match products for each detected item in this description: {analysis_str}
@@ -765,25 +805,47 @@ async def searchByImage(body: Request):
         )
 
         raw_output = response.choices[0].message.content.strip()
-        print("🔎 GPT raw output:", raw_output)
+        print(f"🔎 [DEBUG] GPT raw output: {raw_output}")
 
         try:
             filteredResults = json.loads(raw_output)
-        except json.JSONDecodeError:
+            print(f"✅ [DEBUG] Successfully parsed GPT output as JSON")
+            print(f"📊 [DEBUG] filteredResults type: {type(filteredResults)}")
+            print(f"📊 [DEBUG] filteredResults: {filteredResults}")
+        except json.JSONDecodeError as json_err:
+            print(f"⚠️  [DEBUG] JSON decode error: {json_err}")
+            print(f"🔄 [DEBUG] Trying regex extraction from raw_output...")
             import re
             match = re.search(r"\[.*\]", raw_output, re.DOTALL)
             if match:
                 filteredResults = json.loads(match.group(0))
+                print(f"✅ [DEBUG] Successfully extracted JSON with regex")
+                print(f"📊 [DEBUG] filteredResults: {filteredResults}")
             else:
-                print("❌ Could not parse GPT output")
+                print(f"❌ [DEBUG] Could not parse GPT output with regex either")
+                print(f"📄 [DEBUG] raw_output was: {raw_output}")
+                print("="*80 + "\n")
                 return []
 
+        print(f"🔍 [DEBUG] Filtering candidateProducts using filteredResults...")
+        print(f"📊 [DEBUG] candidateProducts IDs (first 10): {[p['_id'] for p in candidateProducts[:10]]}")
+        print(f"📊 [DEBUG] filteredResults IDs: {filteredResults}")
         responseProducts = [p for p in candidateProducts if p["_id"] in filteredResults]
-
+        print(f"✅ [DEBUG] Found {len(responseProducts)} matching products")
+        
+        if len(responseProducts) == 0:
+            print(f"⚠️  [DEBUG] No products matched! filteredResults: {filteredResults}")
+            print(f"⚠️  [DEBUG] Candidate product IDs (all {len(candidateProducts)}): {[p['_id'] for p in candidateProducts]}")
+        
+        print("="*80 + "\n")
         return responseProducts
 
     except Exception as e:
-        print("Couldn't generate results:", e)
+        print(f"❌ [DEBUG] Exception occurred: {type(e).__name__}: {str(e)}")
+        import traceback
+        print(f"📚 [DEBUG] Full traceback:")
+        traceback.print_exc()
+        print("="*80 + "\n")
         return []
 
 @feed_route.get("/get_product_image_details")
@@ -792,7 +854,7 @@ async def getProductImageDetails(imageUrl: str):
         img_data = requests.get(imageUrl, timeout=20).content
         b64_image = base64.b64encode(img_data).decode("utf-8")
         client = OpenAI(
-            api_key="YOUR_API_KEY_HERE"
+            api_key=OPENAI_API_KEY
         )
         response = client.chat.completions.create(
                 model="gpt-4.1-mini",

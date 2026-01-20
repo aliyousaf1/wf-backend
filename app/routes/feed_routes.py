@@ -392,6 +392,256 @@ async def addToWatched(email: str, product: dict):
         raise HTTPException(500, "Couldn't view product")
     return {"message": "SUCCESS"}
 
+async def get_products_by_type(product_types: list, gender: str = None, limit: int = 20):
+    """
+    Filter products by product type (e.g., Shoes, Belts, Shirts, etc.)
+    Product types are matched against the category in highlights.
+    """
+    if not product_types:
+        return []
+    
+    # Normalize product types to lowercase
+    product_types = [pt.strip().lower() for pt in product_types if pt]
+    
+    if not product_types:
+        return []
+    
+    # Build query to match category in highlights
+    type_conditions = []
+    for pt in product_types:
+        type_conditions.append({
+            "highlights": {
+                "$elemMatch": {
+                    "$regex": f"^category:.*{pt}.*$",
+                    "$options": "i"
+                }
+            }
+        })
+    
+    query = {"$or": type_conditions}
+    
+    # Add gender filter if provided
+    if gender:
+        query = {
+            "$and": [
+                {"gender": {"$regex": f"^{gender.strip().lower()}$", "$options": "i"}},
+                query
+            ]
+        }
+    
+    cursor = productsCollection.find(query).limit(limit)
+    results = []
+    async for doc in cursor:
+        results.append(sanitize_product(serializeItem(doc)))
+    
+    return results
+
+
+async def get_recommendations_with_type_filter(data: dict):
+    """
+    Get recommendations with optional product type filtering.
+    Supports filtering by product_types array (e.g., ["Shoes", "Belts"]).
+    """
+    request_data = data.get("data", {})
+    product_types = request_data.get("product_types", [])
+    genders = request_data.get("genders", [])
+    email = request_data.get("email", "")
+    
+    # Normalize product_types to list
+    if isinstance(product_types, str):
+        product_types = [product_types]
+    elif not isinstance(product_types, list):
+        product_types = []
+    
+    # Normalize genders to list
+    if isinstance(genders, str):
+        genders = [genders]
+    elif not isinstance(genders, list):
+        genders = []
+    
+    # Fallback to single gender
+    if not genders:
+        single_gender = request_data.get("gender", "")
+        if single_gender:
+            genders = [single_gender]
+        elif email:
+            user = await usersCollection.find_one({"email": email})
+            if user:
+                user = serializeItem(user)
+                user_genders = user.get("genders", [])
+                if isinstance(user_genders, list) and user_genders:
+                    genders = user_genders
+                elif user_genders:
+                    genders = [user_genders]
+                else:
+                    old_gender = user.get("gender", "")
+                    if old_gender:
+                        genders = [old_gender]
+    
+    # Normalize genders
+    genders = [g.strip().lower() for g in genders if g and isinstance(g, str)]
+    product_types = [pt.strip().lower() for pt in product_types if pt and isinstance(pt, str)]
+    
+    # If no product types filter, use regular recommendations
+    if not product_types:
+        return await get_recommendations_with_genders(data)
+    
+    # Fetch user for exclusion lists
+    user = None
+    excluded_ids = []
+    if email:
+        user = await usersCollection.find_one({"email": email})
+        if user:
+            user = sanitize_product(serializeItem(user))
+            excluded_ids = list({
+                *safe_obj_ids(user.get("productsViewed", [])),
+                *safe_obj_ids(user.get("dislikes", [])),
+                *safe_obj_ids(user.get("likes", [])),
+            })
+    
+    # Build type filter conditions
+    type_conditions = []
+    for pt in product_types:
+        type_conditions.append({
+            "highlights": {
+                "$elemMatch": {
+                    "$regex": f"^category:.*{pt}.*$",
+                    "$options": "i"
+                }
+            }
+        })
+    
+    # Build gender conditions
+    gender_condition = {}
+    if genders:
+        if len(genders) == 1:
+            gender_condition = {"gender": {"$regex": f"^{genders[0]}$", "$options": "i"}}
+        else:
+            gender_condition = {"gender": {"$in": genders}}
+    
+    # Build final query
+    query_parts = [{"$or": type_conditions}]
+    if gender_condition:
+        query_parts.append(gender_condition)
+    if excluded_ids:
+        query_parts.append({"_id": {"$nin": excluded_ids}})
+    
+    query = {"$and": query_parts} if len(query_parts) > 1 else query_parts[0]
+    
+    cursor = productsCollection.find(query)
+    candidates = [sanitize_product(serializeItem(p)) async for p in cursor]
+    
+    if not candidates:
+        return []
+    
+    # Score and sort if user has likes
+    if user and user.get("likes"):
+        keywords = extract_keywords(user["likes"])
+        scored_products = [(product, score_product(product, keywords)) for product in candidates]
+        scored_products.sort(key=lambda x: x[1], reverse=True)
+        
+        # Deduplicate
+        seen_ids = set()
+        unique_recommendations = []
+        for product, _ in scored_products:
+            pid = str(product.get("_id"))
+            if pid and pid not in seen_ids:
+                unique_recommendations.append(product)
+                seen_ids.add(pid)
+        
+        return unique_recommendations[:10]
+    
+    # Random fallback
+    unique_candidates = list({str(p["_id"]): p for p in candidates}.values())
+    return random.sample(unique_candidates, min(10, len(unique_candidates)))
+
+
+async def get_recommendations_guest_with_type_filter(data: dict):
+    """
+    Get guest recommendations with optional product type filtering.
+    """
+    request_data = data.get("data", {})
+    product_types = request_data.get("product_types", [])
+    genders = request_data.get("genders", [])
+    likes = request_data.get("likes", [])
+    dislikes = request_data.get("dislikes", [])
+    products_viewed = request_data.get("productsViewed", [])
+    
+    # Normalize product_types to list
+    if isinstance(product_types, str):
+        product_types = [product_types]
+    elif not isinstance(product_types, list):
+        product_types = []
+    
+    # Normalize genders to list
+    if isinstance(genders, str):
+        genders = [genders]
+    elif not isinstance(genders, list):
+        genders = []
+    
+    # Fallback to single gender
+    if not genders:
+        single_gender = request_data.get("gender", "")
+        if single_gender:
+            genders = [single_gender]
+    
+    # Normalize
+    genders = [g.strip().lower() for g in genders if g and isinstance(g, str)]
+    product_types = [pt.strip().lower() for pt in product_types if pt and isinstance(pt, str)]
+    
+    # If no product types filter, use regular guest recommendations
+    if not product_types:
+        return await get_recommendations_guest_with_genders(data)
+    
+    # Excluded IDs
+    excluded_ids = [ObjectId(p["_id"]) for p in products_viewed + dislikes if p.get("_id")]
+    
+    # Build type filter conditions
+    type_conditions = []
+    for pt in product_types:
+        type_conditions.append({
+            "highlights": {
+                "$elemMatch": {
+                    "$regex": f"^category:.*{pt}.*$",
+                    "$options": "i"
+                }
+            }
+        })
+    
+    # Build gender conditions
+    gender_condition = {}
+    if genders:
+        if len(genders) == 1:
+            gender_condition = {"gender": {"$regex": f"^{genders[0]}$", "$options": "i"}}
+        else:
+            gender_condition = {"gender": {"$in": genders}}
+    
+    # Build final query
+    query_parts = [{"$or": type_conditions}]
+    if gender_condition:
+        query_parts.append(gender_condition)
+    if excluded_ids:
+        query_parts.append({"_id": {"$nin": excluded_ids}})
+    
+    query = {"$and": query_parts} if len(query_parts) > 1 else query_parts[0]
+    
+    cursor = productsCollection.find(query)
+    candidates = [sanitize_product(serializeItem(p)) async for p in cursor]
+    
+    if not candidates:
+        return []
+    
+    # Score and sort if user has likes
+    if likes:
+        keywords = extract_keywords(likes)
+        scored_products = [(product, score_product(product, keywords)) for product in candidates]
+        scored_products.sort(key=lambda x: x[1], reverse=True)
+        return [p for p, _ in scored_products[:10]]
+    
+    # Random fallback
+    return random.sample(candidates, min(10, len(candidates)))
+
+
 async def get_recommendations_with_genders(data: dict):
     """
     Helper function to handle recommendations with genders array.
@@ -555,6 +805,32 @@ async def feed_socket(websocket: WebSocket):
                 response = await get_recommendations_guest_with_genders(data)
                 if len(response) == 0:
                     response = await get_recommendations_guest_with_genders(data)
+                await websocket.send_json(response)
+            
+            # Filter recommendations by product type (e.g., Shoes, Belts, Shirts)
+            elif data["req_type"] == "GET_RECOMMENDATIONS_FILTERED":
+                response = await get_recommendations_with_type_filter(data)
+                if len(response) == 0:
+                    response = await get_recommendations_with_type_filter(data)
+                await websocket.send_json(response)
+            
+            elif data["req_type"] == "GET_RECOMMENDATIONS_GUEST_FILTERED":
+                response = await get_recommendations_guest_with_type_filter(data)
+                if len(response) == 0:
+                    response = await get_recommendations_guest_with_type_filter(data)
+                await websocket.send_json(response)
+            
+            # Get products by type only (no recommendation logic)
+            elif data["req_type"] == "FILTER_BY_TYPE":
+                request_data = data.get("data", {})
+                product_types = request_data.get("product_types", [])
+                gender = request_data.get("gender", "")
+                limit = request_data.get("limit", 20)
+                
+                if isinstance(product_types, str):
+                    product_types = [product_types]
+                
+                response = await get_products_by_type(product_types, gender, limit)
                 await websocket.send_json(response)
 
             elif data["req_type"] == "PING":

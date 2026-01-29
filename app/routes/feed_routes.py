@@ -833,6 +833,66 @@ async def feed_socket(websocket: WebSocket):
                 response = await get_products_by_type(product_types, gender, limit)
                 await websocket.send_json(response)
 
+            elif data["req_type"] == "SEARCH_BY_TEXT":
+                search_query = data.get("searchQuery", "").lower()
+                gender = data.get("gender", "")
+
+                gender_values = [g.strip().lower() for g in gender.split(",") if g.strip()]
+                if not gender_values:
+                    await websocket.send_json([])
+                else:
+                    normalize_map = {
+                        "sneakers": "sneaker", "shoes": "shoe",
+                        "loafers": "loafer", "sandals": "sandal", "boots": "boot"
+                    }
+                    keywords = [normalize_map.get(kw, kw) for kw in search_query.split()]
+
+                    allowed_highlight_fields = [
+                        "category", "cloth_type", "colors",
+                        "material", "length", "fit", "style"
+                    ]
+
+                    keyword_conditions = []
+                    for kw in keywords:
+                        regex = {"$regex": kw, "$options": "i"}
+                        keyword_conditions.append({
+                            "$or": [
+                                {"title": regex},
+                                {"brand": regex},
+                                {"description": regex},
+                                *[
+                                    {"highlights": {"$elemMatch": {"$regex": f"^{field}:.*{kw}.*$", "$options": "i"}}}
+                                    for field in allowed_highlight_fields
+                                ]
+                            ]
+                        })
+
+                    if len(gender_values) == 1:
+                        gender_condition = {"gender": {"$regex": f"^{gender_values[0]}$", "$options": "i"}}
+                    else:
+                        gender_condition = {"gender": {"$in": gender_values}}
+
+                    query = {"$and": [gender_condition, *keyword_conditions]}
+
+                    pipeline = [
+                        {"$addFields": {
+                            "title": {"$toLower": "$title"},
+                            "brand": {"$toLower": "$brand"},
+                            "description": {"$toLower": "$description"},
+                            "gender": {"$toLower": "$gender"},
+                            "highlights": {"$map": {"input": "$highlights", "as": "h", "in": {"$toLower": "$$h"}}}
+                        }},
+                        {"$match": query}
+                    ]
+
+                    cursor = productsCollection.aggregate(pipeline)
+                    results = []
+                    async for doc in cursor:
+                        doc["_id"] = str(doc["_id"])
+                        results.append(doc)
+
+                    await websocket.send_json(results)
+
             elif data["req_type"] == "PING":
                 await websocket.send_json({"message": "Hey there from server"})
 

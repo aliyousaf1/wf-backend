@@ -143,14 +143,14 @@ async def get_recommendations(data: dict = Body(...)):
         *safe_obj_ids(user.get("likes", [])),
     })
 
-    # 🔹 Strict gender filter
+    # 🔹 Case-insensitive gender filter
     query = {
-        "gender": gender,
+        "gender": {"$regex": f"^{gender}$", "$options": "i"},
         "_id": {"$nin": excluded_ids},
     }
 
-    # 🔹 Fetch candidate products
-    candidates_cursor = productsCollection.find(query)
+    # 🔹 Fetch candidate products (single DB round-trip, limited to 100)
+    candidates_cursor = productsCollection.find(query).limit(100)
     candidates = [
         sanitize_product(serializeItem(p))
         async for p in candidates_cursor
@@ -159,7 +159,7 @@ async def get_recommendations(data: dict = Body(...)):
     if not candidates:
         return []
 
-    # 🔹 Load accessories once
+    # 🔹 Load accessories once (limited to reduce round-trip data)
     accessories_cursor = productsCollection.find({
         "gender": gender,
         "highlights": {
@@ -168,7 +168,7 @@ async def get_recommendations(data: dict = Body(...)):
                 "$options": "i",
             }
         }
-    })
+    }).limit(20)
 
     accessories = [
         sanitize_product(serializeItem(p))
@@ -236,8 +236,8 @@ async def get_recommendations_guest(data: dict = Body(...)):
         "_id": {"$nin": excluded_ids},
     }
 
-    # 🔹 Fetch candidate products
-    candidates_cursor = productsCollection.find(query)
+    # 🔹 Fetch candidate products (limited to 100)
+    candidates_cursor = productsCollection.find(query).limit(100)
     candidates = [
         sanitize_product(serializeItem(p))
         async for p in candidates_cursor
@@ -246,15 +246,16 @@ async def get_recommendations_guest(data: dict = Body(...)):
     if not candidates:
         return []
 
-    # 🔹 Preload accessories
+    # 🔹 Preload accessories (with gender filter and limit)
     accessories_cursor = productsCollection.find({
+        "gender": {"$regex": f"^{gender}$", "$options": "i"},
         "highlights": {
             "$elemMatch": {
                 "$regex": "(bag|perfume|belt|watch|tie|fragrance|accessory)",
                 "$options": "i",
             }
         }
-    })
+    }).limit(20)
 
     accessories = [
         sanitize_product(serializeItem(p))
@@ -446,58 +447,58 @@ async def get_recommendations_with_type_filter(data: dict):
     product_types = request_data.get("product_types", [])
     genders = request_data.get("genders", [])
     email = request_data.get("email", "")
-    
+
     # Normalize product_types to list
     if isinstance(product_types, str):
         product_types = [product_types]
     elif not isinstance(product_types, list):
         product_types = []
-    
+
     # Normalize genders to list
     if isinstance(genders, str):
         genders = [genders]
     elif not isinstance(genders, list):
         genders = []
-    
-    # Fallback to single gender
-    if not genders:
-        single_gender = request_data.get("gender", "")
-        if single_gender:
-            genders = [single_gender]
-        elif email:
-            user = await usersCollection.find_one({"email": email})
-            if user:
-                user = serializeItem(user)
-                user_genders = user.get("genders", [])
-                if isinstance(user_genders, list) and user_genders:
-                    genders = user_genders
-                elif user_genders:
-                    genders = [user_genders]
-                else:
-                    old_gender = user.get("gender", "")
-                    if old_gender:
-                        genders = [old_gender]
-    
-    # Normalize genders
-    genders = [g.strip().lower() for g in genders if g and isinstance(g, str)]
-    product_types = [pt.strip().lower() for pt in product_types if pt and isinstance(pt, str)]
-    
-    # If no product types filter, use regular recommendations
-    if not product_types:
-        return await get_recommendations_with_genders(data)
-    
-    # Fetch user for exclusion lists
+
+    # Fetch user once for both gender fallback and exclusion lists
     user = None
-    excluded_ids = []
     if email:
         user = await usersCollection.find_one({"email": email})
         if user:
             user = sanitize_product(serializeItem(user))
-            excluded_ids = list({
-                *safe_obj_ids(user.get("productsViewed", [])),
-                *safe_obj_ids(user.get("dislikes", [])),
-                *safe_obj_ids(user.get("likes", [])),
-            })
+
+    # Fallback to single gender from user if not provided
+    if not genders:
+        single_gender = request_data.get("gender", "")
+        if single_gender:
+            genders = [single_gender]
+        elif user:
+            user_genders = user.get("genders", [])
+            if isinstance(user_genders, list) and user_genders:
+                genders = user_genders
+            elif user_genders:
+                genders = [user_genders]
+            else:
+                old_gender = user.get("gender", "")
+                if old_gender:
+                    genders = [old_gender]
+
+    # Normalize genders
+    genders = [g.strip().lower() for g in genders if g and isinstance(g, str)]
+    product_types = [pt.strip().lower() for pt in product_types if pt and isinstance(pt, str)]
+
+    # If no product types filter, use regular recommendations
+    if not product_types:
+        return await get_recommendations_with_genders(data)
+
+    # Build exclusion list from user data
+    excluded_ids = []
+    if user:
+        excluded_ids = list({
+            *safe_obj_ids(user.get("productsViewed", [])),
+            *safe_obj_ids(user.get("dislikes", [])),
+            *safe_obj_ids(user.get("likes", [])),
+        })
     
     # Build type filter conditions
     type_conditions = []
@@ -527,13 +528,14 @@ async def get_recommendations_with_type_filter(data: dict):
         query_parts.append({"_id": {"$nin": excluded_ids}})
     
     query = {"$and": query_parts} if len(query_parts) > 1 else query_parts[0]
-    
-    cursor = productsCollection.find(query)
+
+    # Limit to 100 candidates (we only need 10 final results)
+    cursor = productsCollection.find(query).limit(100)
     candidates = [sanitize_product(serializeItem(p)) async for p in cursor]
-    
+
     if not candidates:
         return []
-    
+
     # Score and sort if user has likes
     if user and user.get("likes"):
         keywords = extract_keywords(user["likes"])
@@ -624,13 +626,14 @@ async def get_recommendations_guest_with_type_filter(data: dict):
         query_parts.append({"_id": {"$nin": excluded_ids}})
     
     query = {"$and": query_parts} if len(query_parts) > 1 else query_parts[0]
-    
-    cursor = productsCollection.find(query)
+
+    # Limit to 100 candidates (we only need 10 final results)
+    cursor = productsCollection.find(query).limit(100)
     candidates = [sanitize_product(serializeItem(p)) async for p in cursor]
-    
+
     if not candidates:
         return []
-    
+
     # Score and sort if user has likes
     if likes:
         keywords = extract_keywords(likes)
@@ -649,13 +652,13 @@ async def get_recommendations_with_genders(data: dict):
     """
     request_data = data.get("data", {})
     genders = request_data.get("genders", [])
-    
+
     # Normalize genders to list
     if isinstance(genders, str):
         genders = [genders]
     elif not isinstance(genders, list):
         genders = []
-    
+
     # If no genders array, fallback to single gender or fetch from user
     if not genders:
         single_gender = request_data.get("gender", "")
@@ -678,16 +681,16 @@ async def get_recommendations_with_genders(data: dict):
                         old_gender = user.get("gender", "")
                         if old_gender:
                             genders = [old_gender]
-    
+
     if not genders:
         return []
-    
+
     # Normalize genders to lowercase strings
     genders = [g.strip().lower() if isinstance(g, str) else str(g).lower() for g in genders if g]
-    
+
     if not genders:
         return []
-    
+
     # If single gender, use existing function
     if len(genders) == 1:
         modified_data = request_data.copy()
@@ -776,7 +779,6 @@ async def feed_socket(websocket: WebSocket):
         await websocket.send_text("Connected to socket")
         while True:
             data = await websocket.receive_json()
-            print(data)
 
             if data["req_type"] == "LIKE":
                 if await like_product_db(data["email"], data["product"]):
@@ -798,26 +800,19 @@ async def feed_socket(websocket: WebSocket):
 
             elif data["req_type"] == "GET_RECOMMENDATIONS":
                 response = await get_recommendations_with_genders(data)
-                if len(response) == 0:
-                    response = await get_recommendations_with_genders(data)
                 await websocket.send_json(response)
+
             elif data["req_type"] == "GET_RECOMMENDATIONS_GUEST":
                 response = await get_recommendations_guest_with_genders(data)
-                if len(response) == 0:
-                    response = await get_recommendations_guest_with_genders(data)
                 await websocket.send_json(response)
-            
+
             # Filter recommendations by product type (e.g., Shoes, Belts, Shirts)
             elif data["req_type"] == "GET_RECOMMENDATIONS_FILTERED":
                 response = await get_recommendations_with_type_filter(data)
-                if len(response) == 0:
-                    response = await get_recommendations_with_type_filter(data)
                 await websocket.send_json(response)
-            
+
             elif data["req_type"] == "GET_RECOMMENDATIONS_GUEST_FILTERED":
                 response = await get_recommendations_guest_with_type_filter(data)
-                if len(response) == 0:
-                    response = await get_recommendations_guest_with_type_filter(data)
                 await websocket.send_json(response)
             
             # Get products by type only (no recommendation logic)
@@ -882,7 +877,8 @@ async def feed_socket(websocket: WebSocket):
                             "gender": {"$toLower": "$gender"},
                             "highlights": {"$map": {"input": "$highlights", "as": "h", "in": {"$toLower": "$$h"}}}
                         }},
-                        {"$match": query}
+                        {"$match": query},
+                        {"$limit": 100}  # Limit results to reduce response size
                     ]
 
                     cursor = productsCollection.aggregate(pipeline)
@@ -1043,7 +1039,8 @@ async def searchByText(gender: str, searchQuery: str = Query(..., min_length=1))
                 }
             }
         },
-        {"$match": query}
+        {"$match": query},
+        {"$limit": 100}  # Limit results to reduce response size on M0
     ]
 
     cursor = productsCollection.aggregate(pipeline)
@@ -1057,57 +1054,50 @@ async def searchByText(gender: str, searchQuery: str = Query(..., min_length=1))
 
 @feed_route.post("/search_by_image")
 async def searchByImage(body: Request):
-    print("\n" + "="*80)
-    print("🔍 [DEBUG] Starting search_by_image endpoint")
-    print("="*80)
-    
     reqBody = await body.json()
     imageUrl = reqBody.get("imageUrl", "")
-    print(f"📥 [DEBUG] Received imageUrl: {imageUrl}")
-    
-    print(f"🔄 [DEBUG] Calling getProductImageDetails...")
+
     imageAnalysis = await getProductImageDetails(imageUrl=imageUrl)
-    print(f"✅ [DEBUG] imageAnalysis type: {type(imageAnalysis)}")
-    print(f"✅ [DEBUG] imageAnalysis content: {imageAnalysis}")
 
     # Convert imageAnalysis to a string
     if isinstance(imageAnalysis, dict):
         analysis_str = dict_to_string(imageAnalysis)
-        print(f"📝 [DEBUG] imageAnalysis is dict, converted to string")
     elif isinstance(imageAnalysis, list):
         analysis_str = " | ".join([dict_to_string(item) for item in imageAnalysis])
-        print(f"📝 [DEBUG] imageAnalysis is list, converted to string")
     else:
         analysis_str = str(imageAnalysis)
-        print(f"📝 [DEBUG] imageAnalysis is {type(imageAnalysis)}, converted to string")
-    
-    print(f"📄 [DEBUG] analysis_str: {analysis_str[:200]}..." if len(analysis_str) > 200 else f"📄 [DEBUG] analysis_str: {analysis_str}")
 
-    # Fetch all products
-    print(f"🗄️  [DEBUG] Fetching all products from database...")
-    productsList = await productsCollection.find().to_list(length=None)
-    print(f"✅ [DEBUG] Fetched {len(productsList)} products from database")
+    # Extract keywords for DB query (faster than fetching all products)
+    keywords = re.findall(r"\w+", analysis_str.lower())
+
+    # Build text search query if we have keywords
+    if keywords:
+        # Use $or with regex for flexible matching (limited to 500 products)
+        keyword_conditions = []
+        for kw in keywords[:5]:  # Limit to top 5 keywords
+            regex = {"$regex": kw, "$options": "i"}
+            keyword_conditions.append({"title": regex})
+            keyword_conditions.append({"highlights": {"$elemMatch": regex}})
+
+        query = {"$or": keyword_conditions} if keyword_conditions else {}
+        productsList = await productsCollection.find(query).limit(500).to_list(length=500)
+    else:
+        # Fallback: fetch limited products sorted by recent
+        productsList = await productsCollection.find().sort("createdAt", -1).limit(500).to_list(length=500)
+
     serialProductsData = [serializeItem(item) for item in productsList]
-    print(f"✅ [DEBUG] Serialized {len(serialProductsData)} products")
 
     # Pre-filter products
-    print(f"🔎 [DEBUG] Running simple_filter_products with analysis_str and {len(serialProductsData)} products...")
     candidateProducts = simple_filter_products(analysis_str, serialProductsData, top_k=50)
-    print(f"✅ [DEBUG] Found {len(candidateProducts)} candidate products after filtering")
 
     if not candidateProducts:
-        print(f"❌ [DEBUG] No candidate products found! Returning empty array.")
-        print(f"📄 [DEBUG] analysis_str was: {analysis_str}")
-        print("="*80 + "\n")
         return []
 
-    print(f"🤖 [DEBUG] Calling OpenAI API with {len(candidateProducts)} candidate products...")
     open_ai_client = OpenAI(
         api_key=OPENAI_API_KEY
     )
 
     try:
-        print(f"📤 [DEBUG] Sending request to OpenAI GPT-4.1-mini...")
         response = open_ai_client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
@@ -1141,47 +1131,21 @@ async def searchByImage(body: Request):
         )
 
         raw_output = response.choices[0].message.content.strip()
-        print(f"🔎 [DEBUG] GPT raw output: {raw_output}")
 
         try:
             filteredResults = json.loads(raw_output)
-            print(f"✅ [DEBUG] Successfully parsed GPT output as JSON")
-            print(f"📊 [DEBUG] filteredResults type: {type(filteredResults)}")
-            print(f"📊 [DEBUG] filteredResults: {filteredResults}")
-        except json.JSONDecodeError as json_err:
-            print(f"⚠️  [DEBUG] JSON decode error: {json_err}")
-            print(f"🔄 [DEBUG] Trying regex extraction from raw_output...")
-            import re
+        except json.JSONDecodeError:
+            # Try regex extraction as fallback
             match = re.search(r"\[.*\]", raw_output, re.DOTALL)
             if match:
                 filteredResults = json.loads(match.group(0))
-                print(f"✅ [DEBUG] Successfully extracted JSON with regex")
-                print(f"📊 [DEBUG] filteredResults: {filteredResults}")
             else:
-                print(f"❌ [DEBUG] Could not parse GPT output with regex either")
-                print(f"📄 [DEBUG] raw_output was: {raw_output}")
-                print("="*80 + "\n")
                 return []
 
-        print(f"🔍 [DEBUG] Filtering candidateProducts using filteredResults...")
-        print(f"📊 [DEBUG] candidateProducts IDs (first 10): {[p['_id'] for p in candidateProducts[:10]]}")
-        print(f"📊 [DEBUG] filteredResults IDs: {filteredResults}")
         responseProducts = [p for p in candidateProducts if p["_id"] in filteredResults]
-        print(f"✅ [DEBUG] Found {len(responseProducts)} matching products")
-        
-        if len(responseProducts) == 0:
-            print(f"⚠️  [DEBUG] No products matched! filteredResults: {filteredResults}")
-            print(f"⚠️  [DEBUG] Candidate product IDs (all {len(candidateProducts)}): {[p['_id'] for p in candidateProducts]}")
-        
-        print("="*80 + "\n")
         return responseProducts
 
-    except Exception as e:
-        print(f"❌ [DEBUG] Exception occurred: {type(e).__name__}: {str(e)}")
-        import traceback
-        print(f"📚 [DEBUG] Full traceback:")
-        traceback.print_exc()
-        print("="*80 + "\n")
+    except Exception:
         return []
 
 @feed_route.get("/get_product_image_details")

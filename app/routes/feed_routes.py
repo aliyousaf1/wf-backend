@@ -149,8 +149,12 @@ async def get_recommendations(data: dict = Body(...)):
         "_id": {"$nin": excluded_ids},
     }
 
-    # 🔹 Fetch candidate products (single DB round-trip, limited to 100)
-    candidates_cursor = productsCollection.find(query).limit(100)
+    # 🔹 Fetch random candidate products using $sample (avoids always getting same products)
+    pipeline = [
+        {"$match": query},
+        {"$sample": {"size": 100}}  # Random 100 products
+    ]
+    candidates_cursor = productsCollection.aggregate(pipeline)
     candidates = [
         sanitize_product(serializeItem(p))
         async for p in candidates_cursor
@@ -159,16 +163,20 @@ async def get_recommendations(data: dict = Body(...)):
     if not candidates:
         return []
 
-    # 🔹 Load accessories once (limited to reduce round-trip data)
-    accessories_cursor = productsCollection.find({
-        "gender": gender,
-        "highlights": {
-            "$elemMatch": {
-                "$regex": "(bag|perfume|belt|watch|tie|fragrance|accessory)",
-                "$options": "i",
+    # 🔹 Load random accessories
+    accessories_pipeline = [
+        {"$match": {
+            "gender": {"$regex": f"^{gender}$", "$options": "i"},
+            "highlights": {
+                "$elemMatch": {
+                    "$regex": "(bag|perfume|belt|watch|tie|fragrance|accessory)",
+                    "$options": "i",
+                }
             }
-        }
-    }).limit(20)
+        }},
+        {"$sample": {"size": 20}}
+    ]
+    accessories_cursor = productsCollection.aggregate(accessories_pipeline)
 
     accessories = [
         sanitize_product(serializeItem(p))
@@ -236,8 +244,12 @@ async def get_recommendations_guest(data: dict = Body(...)):
         "_id": {"$nin": excluded_ids},
     }
 
-    # 🔹 Fetch candidate products (limited to 100)
-    candidates_cursor = productsCollection.find(query).limit(100)
+    # 🔹 Fetch random candidate products using $sample
+    pipeline = [
+        {"$match": query},
+        {"$sample": {"size": 100}}
+    ]
+    candidates_cursor = productsCollection.aggregate(pipeline)
     candidates = [
         sanitize_product(serializeItem(p))
         async for p in candidates_cursor
@@ -246,16 +258,20 @@ async def get_recommendations_guest(data: dict = Body(...)):
     if not candidates:
         return []
 
-    # 🔹 Preload accessories (with gender filter and limit)
-    accessories_cursor = productsCollection.find({
-        "gender": {"$regex": f"^{gender}$", "$options": "i"},
-        "highlights": {
-            "$elemMatch": {
-                "$regex": "(bag|perfume|belt|watch|tie|fragrance|accessory)",
-                "$options": "i",
+    # 🔹 Preload random accessories
+    accessories_pipeline = [
+        {"$match": {
+            "gender": {"$regex": f"^{gender}$", "$options": "i"},
+            "highlights": {
+                "$elemMatch": {
+                    "$regex": "(bag|perfume|belt|watch|tie|fragrance|accessory)",
+                    "$options": "i",
+                }
             }
-        }
-    }).limit(20)
+        }},
+        {"$sample": {"size": 20}}
+    ]
+    accessories_cursor = productsCollection.aggregate(accessories_pipeline)
 
     accessories = [
         sanitize_product(serializeItem(p))
@@ -429,12 +445,17 @@ async def get_products_by_type(product_types: list, gender: str = None, limit: i
                 query
             ]
         }
-    
-    cursor = productsCollection.find(query).limit(limit)
+
+    # Use random sampling to get different products each time
+    pipeline = [
+        {"$match": query},
+        {"$sample": {"size": limit}}
+    ]
+    cursor = productsCollection.aggregate(pipeline)
     results = []
     async for doc in cursor:
         results.append(sanitize_product(serializeItem(doc)))
-    
+
     return results
 
 
@@ -529,8 +550,12 @@ async def get_recommendations_with_type_filter(data: dict):
     
     query = {"$and": query_parts} if len(query_parts) > 1 else query_parts[0]
 
-    # Limit to 100 candidates (we only need 10 final results)
-    cursor = productsCollection.find(query).limit(100)
+    # Random sample of 100 candidates (avoids always getting same products)
+    pipeline = [
+        {"$match": query},
+        {"$sample": {"size": 100}}
+    ]
+    cursor = productsCollection.aggregate(pipeline)
     candidates = [sanitize_product(serializeItem(p)) async for p in cursor]
 
     if not candidates:
@@ -627,8 +652,12 @@ async def get_recommendations_guest_with_type_filter(data: dict):
     
     query = {"$and": query_parts} if len(query_parts) > 1 else query_parts[0]
 
-    # Limit to 100 candidates (we only need 10 final results)
-    cursor = productsCollection.find(query).limit(100)
+    # Random sample of 100 candidates (avoids always getting same products)
+    pipeline = [
+        {"$match": query},
+        {"$sample": {"size": 100}}
+    ]
+    cursor = productsCollection.aggregate(pipeline)
     candidates = [sanitize_product(serializeItem(p)) async for p in cursor]
 
     if not candidates:

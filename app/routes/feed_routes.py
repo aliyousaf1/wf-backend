@@ -22,62 +22,14 @@ brandsCollection = db["brands"]
 productsCollection = db["products_scrapped"]
 usersCollection = db["users"]
 
-# Category group mappings - expand group names to individual types
+# Category group mappings → exact values used in DB highlights (category: <value>)
+# DB only has 5 categories: Tops, Bottoms, Footwear, Dresses, Accessories
 CATEGORY_GROUPS = {
-    "Shirts": [
-        "t-shirt", "t-shirts", "shirt", "shirts", "blouse", "blouses",
-        "polo", "polos", "sweater", "sweaters", "cardigan", "cardigans",
-        "hoodie", "hoodies", "sweatshirt", "sweatshirts", "tank", "tanks",
-        "tunic", "tunics", "camisole", "camisoles", "knitwear",
-        "outerwear", "vest", "vests", "jacket", "jackets", "coat", "coats",
-        "top", "tops", "crop top", "crop tops", "blazer", "blazers"
-    ],
-    "Footwear": [
-        "sneaker", "sneakers", "trainer", "trainers", "running", "running shoes",
-        "basketball", "basketball shoes", "football", "football boots",
-        "sandal", "sandals", "slide", "slides", "flipflop", "flipflops",
-        "heel", "heels", "pump", "pumps", "wedge", "wedges",
-        "boot", "boots", "ankleboot", "ankleboots", "ankle boot", "ankle boots",
-        "kneeboot", "kneeboots", "knee boot", "knee boots",
-        "overkneeboot", "overkneeboots", "over knee boot", "over knee boots",
-        "loafer", "loafers", "moccasin", "moccasins",
-        "derby", "derbies", "oxford", "oxfords", "brogue", "brogues",
-        "flat", "flats", "ballet", "ballet flat", "ballet flats",
-        "espadrille", "espadrilles", "clog", "clogs", "slipper", "slippers",
-        "boatshoe", "boat shoe", "boat shoes", "monkstrap", "monkstraps",
-        "chelsea", "chelsea boot", "chelsea boots",
-        "chukka", "chukka boot", "chukka boots", "shoe", "shoes"
-    ],
-    "Pants": [
-        "pant", "pants", "trouser", "trousers", "jean", "jeans",
-        "short", "shorts", "skirt", "skirts", "legging", "leggings",
-        "jogger", "joggers", "chino", "chinos", "cargo", "cargos"
-    ],
-    "Accessories": [
-        "bag", "bags", "belt", "belts", "watch", "watches",
-        "tie", "ties", "scarf", "scarves", "hat", "hats", "cap", "caps",
-        "sunglasses", "glasses", "jewelry", "bracelet", "necklace",
-        "wallet", "wallets", "perfume", "fragrance"
-    ],
-    "Dresses": [
-        "dress", "dresses", "maxidress", "maxidresses", "maxi dress", "maxi dresses",
-        "mididress", "mididresses", "midi dress", "midi dresses",
-        "minidress", "minidresses", "mini dress", "mini dresses",
-        "gown", "gowns", "eveningdress", "eveningdresses", "evening dress", "evening dresses",
-        "cocktaildress", "cocktaildresses", "cocktail dress", "cocktail dresses",
-        "shirtdress", "shirtdresses", "shirt dress", "shirt dresses",
-        "wrapdress", "wrapdresses", "wrap dress", "wrap dresses",
-        "bodycondress", "bodycondresses", "bodycon dress", "bodycon dresses",
-        "slipdress", "slipdresses", "slip dress", "slip dresses",
-        "sundress", "sundresses", "sun dress", "sun dresses",
-        "kaftan", "kaftans",
-        "tunicdress", "tunicdresses", "tunic dress", "tunic dresses",
-        "alinedress", "alinedresses", "a-line dress", "a-line dresses", "aline dress", "aline dresses",
-        "ballgown", "ballgowns", "ball gown", "ball gowns",
-        "sheathdress", "sheathdresses", "sheath dress", "sheath dresses",
-        "peplumdress", "peplumdresses", "peplum dress", "peplum dresses",
-        "smockdress", "smockdresses", "smock dress", "smock dresses"
-    ]
+    "Shirts":      ["Tops"],
+    "Footwear":    ["Footwear"],
+    "Pants":       ["Bottoms"],
+    "Accessories": ["Accessories"],
+    "Dresses":     ["Dresses"],
 }
 
 

@@ -64,16 +64,18 @@ CATEGORY_GROUPS = {
 
 def expand_product_types(product_types: list) -> list:
     """
-    Expand category group names (topwear, footwear, etc.) into individual types.
+    Expand category group names (Shirts, Footwear, etc.) into individual types.
+    Case-insensitive key lookup.
     """
+    # Build a lowercase key → original key map for case-insensitive lookup
+    group_map = {k.lower(): v for k, v in CATEGORY_GROUPS.items()}
+
     expanded = []
     for pt in product_types:
         pt_lower = pt.strip().lower()
-        if pt_lower in CATEGORY_GROUPS:
-            # Expand the group to all its subcategories
-            expanded.extend(CATEGORY_GROUPS[pt_lower])
+        if pt_lower in group_map:
+            expanded.extend(group_map[pt_lower])
         else:
-            # Keep the original type
             expanded.append(pt_lower)
     return list(set(expanded))  # Remove duplicates
 

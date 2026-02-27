@@ -58,6 +58,25 @@ CATEGORY_GROUPS = {
         "tie", "ties", "scarf", "scarves", "hat", "hats", "cap", "caps",
         "sunglasses", "glasses", "jewelry", "bracelet", "necklace",
         "wallet", "wallets", "perfume", "fragrance"
+    ],
+    "Dresses": [
+        "dress", "dresses", "maxidress", "maxidresses", "maxi dress", "maxi dresses",
+        "mididress", "mididresses", "midi dress", "midi dresses",
+        "minidress", "minidresses", "mini dress", "mini dresses",
+        "gown", "gowns", "eveningdress", "eveningdresses", "evening dress", "evening dresses",
+        "cocktaildress", "cocktaildresses", "cocktail dress", "cocktail dresses",
+        "shirtdress", "shirtdresses", "shirt dress", "shirt dresses",
+        "wrapdress", "wrapdresses", "wrap dress", "wrap dresses",
+        "bodycondress", "bodycondresses", "bodycon dress", "bodycon dresses",
+        "slipdress", "slipdresses", "slip dress", "slip dresses",
+        "sundress", "sundresses", "sun dress", "sun dresses",
+        "kaftan", "kaftans",
+        "tunicdress", "tunicdresses", "tunic dress", "tunic dresses",
+        "alinedress", "alinedresses", "a-line dress", "a-line dresses", "aline dress", "aline dresses",
+        "ballgown", "ballgowns", "ball gown", "ball gowns",
+        "sheathdress", "sheathdresses", "sheath dress", "sheath dresses",
+        "peplumdress", "peplumdresses", "peplum dress", "peplum dresses",
+        "smockdress", "smockdresses", "smock dress", "smock dresses"
     ]
 }
 

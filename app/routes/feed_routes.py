@@ -22,6 +22,60 @@ brandsCollection = db["brands"]
 productsCollection = db["products_scrapped"]
 usersCollection = db["users"]
 
+# Category group mappings - expand group names to individual types
+CATEGORY_GROUPS = {
+    "topwear": [
+        "t-shirt", "t-shirts", "shirt", "shirts", "blouse", "blouses",
+        "polo", "polos", "sweater", "sweaters", "cardigan", "cardigans",
+        "hoodie", "hoodies", "sweatshirt", "sweatshirts", "tank", "tanks",
+        "tunic", "tunics", "camisole", "camisoles", "knitwear",
+        "outerwear", "vest", "vests", "jacket", "jackets", "coat", "coats",
+        "top", "tops", "crop top", "crop tops", "blazer", "blazers"
+    ],
+    "footwear": [
+        "sneaker", "sneakers", "trainer", "trainers", "running", "running shoes",
+        "basketball", "basketball shoes", "football", "football boots",
+        "sandal", "sandals", "slide", "slides", "flipflop", "flipflops",
+        "heel", "heels", "pump", "pumps", "wedge", "wedges",
+        "boot", "boots", "ankleboot", "ankleboots", "ankle boot", "ankle boots",
+        "kneeboot", "kneeboots", "knee boot", "knee boots",
+        "overkneeboot", "overkneeboots", "over knee boot", "over knee boots",
+        "loafer", "loafers", "moccasin", "moccasins",
+        "derby", "derbies", "oxford", "oxfords", "brogue", "brogues",
+        "flat", "flats", "ballet", "ballet flat", "ballet flats",
+        "espadrille", "espadrilles", "clog", "clogs", "slipper", "slippers",
+        "boatshoe", "boat shoe", "boat shoes", "monkstrap", "monkstraps",
+        "chelsea", "chelsea boot", "chelsea boots",
+        "chukka", "chukka boot", "chukka boots", "shoe", "shoes"
+    ],
+    "bottomwear": [
+        "pant", "pants", "trouser", "trousers", "jean", "jeans",
+        "short", "shorts", "skirt", "skirts", "legging", "leggings",
+        "jogger", "joggers", "chino", "chinos", "cargo", "cargos"
+    ],
+    "accessories": [
+        "bag", "bags", "belt", "belts", "watch", "watches",
+        "tie", "ties", "scarf", "scarves", "hat", "hats", "cap", "caps",
+        "sunglasses", "glasses", "jewelry", "bracelet", "necklace",
+        "wallet", "wallets", "perfume", "fragrance"
+    ]
+}
+
+
+def expand_product_types(product_types: list) -> list:
+    """
+    Expand category group names (topwear, footwear, etc.) into individual types.
+    """
+    expanded = []
+    for pt in product_types:
+        pt_lower = pt.strip().lower()
+        if pt_lower in CATEGORY_GROUPS:
+            # Expand the group to all its subcategories
+            expanded.extend(CATEGORY_GROUPS[pt_lower])
+        else:
+            # Keep the original type
+            expanded.append(pt_lower)
+    return list(set(expanded))  # Remove duplicates
 
 
 def serializeItem(item):
@@ -413,16 +467,20 @@ async def get_products_by_type(product_types: list, gender: str = None, limit: i
     """
     Filter products by product type (e.g., Shoes, Belts, Shirts, etc.)
     Product types are matched against the category in highlights.
+    Supports category groups: topwear, footwear, bottomwear, accessories
     """
     if not product_types:
         return []
-    
+
     # Normalize product types to lowercase
     product_types = [pt.strip().lower() for pt in product_types if pt]
-    
+
     if not product_types:
         return []
-    
+
+    # Expand category groups (topwear -> t-shirts, shirts, etc.)
+    product_types = expand_product_types(product_types)
+
     # Build query to match category in highlights
     type_conditions = []
     for pt in product_types:
@@ -507,6 +565,9 @@ async def get_recommendations_with_type_filter(data: dict):
     # Normalize genders
     genders = [g.strip().lower() for g in genders if g and isinstance(g, str)]
     product_types = [pt.strip().lower() for pt in product_types if pt and isinstance(pt, str)]
+
+    # Expand category groups (topwear -> t-shirts, shirts, etc.)
+    product_types = expand_product_types(product_types)
 
     # If no product types filter, use regular recommendations
     if not product_types:
@@ -615,11 +676,14 @@ async def get_recommendations_guest_with_type_filter(data: dict):
     # Normalize
     genders = [g.strip().lower() for g in genders if g and isinstance(g, str)]
     product_types = [pt.strip().lower() for pt in product_types if pt and isinstance(pt, str)]
-    
+
+    # Expand category groups (topwear -> t-shirts, shirts, etc.)
+    product_types = expand_product_types(product_types)
+
     # If no product types filter, use regular guest recommendations
     if not product_types:
         return await get_recommendations_guest_with_genders(data)
-    
+
     # Excluded IDs
     excluded_ids = [ObjectId(p["_id"]) for p in products_viewed + dislikes if p.get("_id")]
     

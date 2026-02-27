@@ -24,7 +24,7 @@ usersCollection = db["users"]
 
 # Category group mappings - expand group names to individual types
 CATEGORY_GROUPS = {
-    "topwear": [
+    "Shirts": [
         "t-shirt", "t-shirts", "shirt", "shirts", "blouse", "blouses",
         "polo", "polos", "sweater", "sweaters", "cardigan", "cardigans",
         "hoodie", "hoodies", "sweatshirt", "sweatshirts", "tank", "tanks",
@@ -32,7 +32,7 @@ CATEGORY_GROUPS = {
         "outerwear", "vest", "vests", "jacket", "jackets", "coat", "coats",
         "top", "tops", "crop top", "crop tops", "blazer", "blazers"
     ],
-    "footwear": [
+    "Footwear": [
         "sneaker", "sneakers", "trainer", "trainers", "running", "running shoes",
         "basketball", "basketball shoes", "football", "football boots",
         "sandal", "sandals", "slide", "slides", "flipflop", "flipflops",
@@ -48,12 +48,12 @@ CATEGORY_GROUPS = {
         "chelsea", "chelsea boot", "chelsea boots",
         "chukka", "chukka boot", "chukka boots", "shoe", "shoes"
     ],
-    "bottomwear": [
+    "Pants": [
         "pant", "pants", "trouser", "trousers", "jean", "jeans",
         "short", "shorts", "skirt", "skirts", "legging", "leggings",
         "jogger", "joggers", "chino", "chinos", "cargo", "cargos"
     ],
-    "accessories": [
+    "Accessories": [
         "bag", "bags", "belt", "belts", "watch", "watches",
         "tie", "ties", "scarf", "scarves", "hat", "hats", "cap", "caps",
         "sunglasses", "glasses", "jewelry", "bracelet", "necklace",

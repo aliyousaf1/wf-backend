@@ -15,6 +15,7 @@ from difflib import SequenceMatcher
 from bson import ObjectId
 from fastapi import Body
 from datetime import datetime
+from app.routes.points_routes import award_action
 
 feed_route = APIRouter(prefix="/feed", tags=["Products Feed"])
 
@@ -422,18 +423,23 @@ async def add_to_watched_db(email: str, product: dict) -> bool:
 async def likeProduct(email: str, product: dict):
     if not await like_product_db(email, product):
         raise HTTPException(500, "Couldn't like product")
+    await award_action(email, "swipe")
+    await award_action(email, "first_swipe_session")
     return {"message": "SUCCESS"}
 
 @feed_route.post("/add_to_dislikes")
 async def dislikeProduct(email: str, product: dict):
     if not await dislike_product_db(email, product):
         raise HTTPException(500, "Couldn't dislike product")
+    await award_action(email, "swipe")
+    await award_action(email, "first_swipe_session")
     return {"message": "SUCCESS"}
 
 @feed_route.post("/add_to_watched")
 async def addToWatched(email: str, product: dict):
     if not await add_to_watched_db(email, product):
         raise HTTPException(500, "Couldn't view product")
+    await award_action(email, "product_view")
     return {"message": "SUCCESS"}
 
 async def get_products_by_type(product_types: list, gender: str = None, limit: int = 20):
@@ -848,18 +854,23 @@ async def feed_socket(websocket: WebSocket):
 
             if data["req_type"] == "LIKE":
                 if await like_product_db(data["email"], data["product"]):
+                    await award_action(data["email"], "swipe")
+                    await award_action(data["email"], "first_swipe_session")
                     await websocket.send_json({"message": "SUCCESS"})
                 else:
                     await websocket.send_json({"error": "Couldn't like product"})
 
             elif data["req_type"] == "DISLIKE":
                 if await dislike_product_db(data["email"], data["product"]):
+                    await award_action(data["email"], "swipe")
+                    await award_action(data["email"], "first_swipe_session")
                     await websocket.send_json({"message": "SUCCESS"})
                 else:
                     await websocket.send_json({"error": "Couldn't dislike product"})
 
             elif data["req_type"] == "WATCHED":
                 if await add_to_watched_db(data["email"], data["product"]):
+                    await award_action(data["email"], "product_view")
                     await websocket.send_json({"message": "SUCCESS"})
                 else:
                     await websocket.send_json({"error": "Couldn't view product"})

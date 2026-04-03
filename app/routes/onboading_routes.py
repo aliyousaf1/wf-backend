@@ -18,6 +18,7 @@ from app.core.auth_utils import hash_password, verify_password
 from app.models.auth_user_model import AuthUserModel
 from app.models.notification_settings_model import NotificationSettingsModel
 from fastapi.responses import RedirectResponse
+from app.routes.points_routes import award_action
 
 onboarding_route = APIRouter(prefix="/onboarding", tags=["User Onboarding"])
 
@@ -190,11 +191,13 @@ async def createUser(user : UserModel):
 
     if not result.inserted_id:
         raise HTTPException(500, "Couldn't create user")
-    
+
+    await award_action(user.email, "app_open")
+
     return {
        "status": "SUCCESS",
        "data": {
-            "_id": str(result.inserted_id), 
+            "_id": str(result.inserted_id),
             "data": user.model_dump()
         }
     }
@@ -396,7 +399,22 @@ async def updateUser(email: str, data: dict):
 
     if not result.modified_count:
         raise HTTPException(500, "Couldn't update user")
-    
+
+    # Award one-time SP for completing onboarding
+    if updateData.get("onboarded") is True:
+        user = await usersCollection.find_one({"email": email})
+        if user and not user.get("onboarding_sp_awarded"):
+            await award_action(email, "onboarding_complete")
+            await usersCollection.update_one({"email": email}, {"$set": {"onboarding_sp_awarded": True}})
+
+    # Award one-time SP for setting style preferences (sex, genders, or favorite_brands)
+    style_pref_keys = {"sex", "genders", "favorite_brands", "sizes"}
+    if style_pref_keys & set(updateData.keys()):
+        user = await usersCollection.find_one({"email": email})
+        if user and not user.get("style_pref_sp_awarded"):
+            await award_action(email, "style_preferences")
+            await usersCollection.update_one({"email": email}, {"$set": {"style_pref_sp_awarded": True}})
+
     return {
        "status": "SUCCESS"
     }
